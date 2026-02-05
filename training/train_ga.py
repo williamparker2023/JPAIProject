@@ -31,7 +31,11 @@ def evaluate_genome(env: SnakeEnv, genome: np.ndarray, seeds: List[int]) -> Tupl
         score, steps = run_episode(env, agent.act, seed=s)
         total_score += score
         total_steps += steps
-    return (total_score / len(seeds)), total_steps
+    avg_score = total_score / len(seeds)
+    avg_steps = total_steps / len(seeds)
+    # fitness: primary = score, small bonus for survival (avg steps)
+    fitness = avg_score + 0.001 * avg_steps
+    return fitness, total_steps
 
 
 def tournament_select(pop: np.ndarray, fitness: np.ndarray, rng: np.random.Generator, k: int) -> int:
@@ -54,12 +58,15 @@ def main():
     ap.add_argument("--seed0", type=int, default=0)
     ap.add_argument("--save_dir", type=str, default="models")
     ap.add_argument("--hidden", type=int, default=16)  # kept for potential compat
+    ap.add_argument("--stall_multiplier", type=int, default=100, help="multiplier for stall truncation (100*len)")
+    ap.add_argument("--hard_cap_multiplier", type=int, default=50, help="multiplier for hard cap (grid_area * X)")
     args = ap.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
 
-    # set GAAgent hidden constant to args.hidden if needed (here GAAgent.HIDDEN is fixed)
-    env = SnakeEnv(16, 16)
+    # set GAAgent hidden constant to args.hidden so genome shape matches
+    GAAgent.HIDDEN = args.hidden
+    env = SnakeEnv(16, 16, stall_multiplier=args.stall_multiplier, hard_cap_multiplier=args.hard_cap_multiplier)
     rng = np.random.default_rng(args.seed0)
 
     genome_len = GAAgent.genome_size()

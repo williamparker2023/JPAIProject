@@ -56,6 +56,9 @@ class SnakeEnv:
         width: int = 16,
         height: int = 16,
         seed: Optional[int] = None,
+        *,
+        stall_multiplier: int = 100,
+        hard_cap_multiplier: int = 50,
     ):
         self.width = width
         self.height = height
@@ -73,6 +76,9 @@ class SnakeEnv:
 
         self._terminated: bool = False
         self._truncated: bool = False
+        # truncation multipliers (can be lowered during training to save time)
+        self.stall_multiplier = int(stall_multiplier)
+        self.hard_cap_multiplier = int(hard_cap_multiplier)
 
     def seed(self, seed: int) -> None:
         self._rng.seed(seed)
@@ -168,8 +174,8 @@ class SnakeEnv:
             return StepResult(self._get_state(), reward, True, False, info)
 
         # Truncation cap to avoid stalling
-        stall_cap = 100 * len(self.snake)
-        hard_cap = self.grid_area * 50
+        stall_cap = self.stall_multiplier * len(self.snake)
+        hard_cap = self.grid_area * self.hard_cap_multiplier
         if self.steps_since_food >= stall_cap or self.total_steps >= hard_cap:
             self._truncated = True
             info["truncated_reason"] = "stall" if self.steps_since_food >= stall_cap else "hard_cap"
