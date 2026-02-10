@@ -74,11 +74,13 @@ def main():
     ap.add_argument("--seed", type=int, default=0)
     ap.add_argument("--headless", action="store_true")
     ap.add_argument("--eval_episodes", type=int, default=10)
+    ap.add_argument("--stall_multiplier", type=int, default=30, help="multiplier for stall truncation (N*len) - prevents infinite loops")
+    ap.add_argument("--hard_cap_multiplier", type=int, default=20, help="multiplier for hard cap (grid_area * N)")
     args = ap.parse_args()
 
     genome = np.load(args.model)
     agent = GAAgent(genome)
-    env = SnakeEnv(16, 16, seed=args.seed)
+    env = SnakeEnv(16, 16, seed=args.seed, stall_multiplier=args.stall_multiplier, hard_cap_multiplier=args.hard_cap_multiplier)
 
     if args.headless:
         seeds = [args.seed + i for i in range(args.eval_episodes)]

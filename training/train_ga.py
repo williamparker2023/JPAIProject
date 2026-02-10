@@ -11,7 +11,7 @@ from env.snake_env import SnakeEnv, Action
 from agents.ga_agent import GAAgent
 
 # Simple GA trainer producing a best-genome file in models/
-def run_episode(env: SnakeEnv, policy, seed: int) -> Tuple[int, int]:
+def run_episode(env: SnakeEnv, policy, seed: int) -> Tuple[int, int, bool]:
     obs, _ = env.reset(seed=seed)
     # ensure legal actions are accessible in obs for GAAgent
     obs["legal_actions"] = env.legal_actions()
@@ -20,21 +20,24 @@ def run_episode(env: SnakeEnv, policy, seed: int) -> Tuple[int, int]:
         res = env.step(a)
         obs = res.obs
         if res.terminated or res.truncated:
-            return obs["score"], obs["total_steps"]
+            return obs["score"], obs["total_steps"], res.truncated
 
 
 def evaluate_genome(env: SnakeEnv, genome: np.ndarray, seeds: List[int]) -> Tuple[float, int]:
     agent = GAAgent(genome)
     total_score = 0.0
     total_steps = 0
+    truncation_count = 0
     for s in seeds:
-        score, steps = run_episode(env, agent.act, seed=s)
+        score, steps, truncated = run_episode(env, agent.act, seed=s)
         total_score += score
         total_steps += steps
+        if truncated:
+            truncation_count += 1
     avg_score = total_score / len(seeds)
     avg_steps = total_steps / len(seeds)
-    # fitness: primary = score, small bonus for survival (avg steps)
-    fitness = avg_score + 0.001 * avg_steps
+    # fitness: primary = score, bonus for survival, penalty for truncation (circling)
+    fitness = avg_score + 0.001 * avg_steps - (0.5 * truncation_count)
     return fitness, total_steps
 
 
@@ -58,8 +61,9 @@ def main():
     ap.add_argument("--seed0", type=int, default=0)
     ap.add_argument("--save_dir", type=str, default="models")
     ap.add_argument("--hidden", type=int, default=16)  # kept for potential compat
-    ap.add_argument("--stall_multiplier", type=int, default=100, help="multiplier for stall truncation (100*len)")
-    ap.add_argument("--hard_cap_multiplier", type=int, default=50, help="multiplier for hard cap (grid_area * X)")
+    ap.add_argument("--stall_multiplier", type=int, default=50, help="multiplier for stall truncation (N*len) - lower = stricter")
+    ap.add_argument("--hard_cap_multiplier", type=int, default=30, help="multiplier for hard cap (grid_area * N) - lower = stricter")
+    ap.add_argument("--init_scale", type=float, default=0.5, help="initial weight scale (smaller = more conservative start)")
     args = ap.parse_args()
 
     os.makedirs(args.save_dir, exist_ok=True)
@@ -70,7 +74,7 @@ def main():
     rng = np.random.default_rng(args.seed0)
 
     genome_len = GAAgent.genome_size()
-    pop = np.array([GAAgent.random_genome(rng) for _ in range(args.pop_size)])
+    pop = np.array([GAAgent.random_genome(rng, scale=args.init_scale) for _ in range(args.pop_size)])
     fitness = np.zeros(len(pop), dtype=np.float32)
 
     # fixed evaluation seeds (same every generation)
@@ -118,14 +122,30 @@ def main():
             b_idx = tournament_select(pop, fitness, rng, args.tournament_k)
             parent_a = pop[a_idx]
             parent_b = pop[b_idx]
-            # crossover: simple uniform average with 50% chance
-            if rng.random() < 0.5:
-                child = 0.5 * parent_a + 0.5 * parent_b
+            
+            # multi-point crossover: split genome into random chunks
+            child = np.empty_like(parent_a)
+            chunk_size = max(1, len(parent_a) // rng.integers(2, 5))  # 2-4 crossover points
+            crossover_points = sorted(rng.choice(len(parent_a), size=rng.integers(2, 4), replace=False))
+            last = 0
+            use_a = rng.random() < 0.5
+            for cp in crossover_points:
+                if use_a:
+                    child[last:cp] = parent_a[last:cp]
+                else:
+                    child[last:cp] = parent_b[last:cp]
+                use_a = not use_a
+                last = cp
+            # fill remainder
+            if use_a:
+                child[last:] = parent_a[last:]
             else:
-                # clone from one parent
-                child = parent_a.copy() if rng.random() < 0.5 else parent_b.copy()
-            # mutation
-            child += rng.normal(0, args.mut_std, size=child.shape)
+                child[last:] = parent_b[last:]
+            
+            # adaptive mutation: higher early, lower late
+            progress = max(0, (gen - 20) / (args.generations - 20))  # 0 to 1 over last 80% of training
+            mut_scale = args.mut_std * (1.0 - 0.5 * progress)  # linearly decay from mut_std to 0.5*mut_std
+            child += rng.normal(0, mut_scale, size=child.shape)
             new_pop.append(child.astype(np.float32))
 
         pop = np.array(new_pop)
