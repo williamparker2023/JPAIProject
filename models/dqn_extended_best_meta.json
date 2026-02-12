@@ -1,0 +1,7 @@
+{
+  "episode": 400,
+  "best_score": 1.2,
+  "eval_seeds": 5,
+  "features": 21,
+  "hidden": 128
+}

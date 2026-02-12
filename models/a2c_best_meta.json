@@ -1,0 +1,7 @@
+{
+  "episode": 2600,
+  "best_score": 0.4,
+  "train_loss_actor": -0.1608823653668556,
+  "train_loss_critic": 0.28284089057816464,
+  "eval_seeds": 5
+}
