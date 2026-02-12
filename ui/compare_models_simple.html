@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Model High-Score Comparator</title>
+  <style>
+    html,body{height:100%}
+    body{display:flex;align-items:center;justify-content:center;margin:0;background:#f3f6fb;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .panel{width:560px;background:white;padding:26px;border-radius:12px;box-shadow:0 10px 30px rgba(20,30,60,0.08)}
+    h1{margin:0 0 6px;font-size:20px}
+    p{margin:0 0 16px;color:#556}
+    .row{display:flex;gap:8px}
+    input[type=number]{flex:1;padding:10px;border-radius:8px;border:1px solid #e6edf6;font-size:15px}
+    button{padding:10px 12px;border-radius:8px;border:0;background:#2563eb;color:#fff;cursor:pointer}
+    button.ghost{background:#6b7280}
+    .results{margin-top:14px}
+    .model{display:flex;justify-content:space-between;padding:10px;border-radius:8px;background:#f8fafc;margin-top:8px}
+    .ok{color:#047857;font-weight:700}
+    .bad{color:#b91c1c;font-weight:700}
+    .muted{color:#64748b}
+    .small{font-size:13px}
+  </style>
+</head>
+<body>
+  <div class="panel">
+    <h1>Can you beat our AIs at Snake?</h1>
+    <p>Enter a score! This will run each model 10 times (A*, GA, RL/imitation) and compare your number to each model's highest run. Let's see if you can win!</p>
+
+    <div class="row">
+      <input id="score" type="number" step="any" placeholder="Enter your score (e.g. 30)" />
+      <button id="check">Check</button>
+      <button id="clear" class="ghost">Clear</button>
+    </div>
+
+    <div id="status" class="small muted" style="margin-top:10px">Server: http://127.0.0.1:5000/models_best?runs=10</div>
+
+    <div id="results" class="results"></div>
+  </div>
+
+  <script>
+    const scoreEl = document.getElementById('score');
+    const btn = document.getElementById('check');
+    const clearBtn = document.getElementById('clear');
+    const resultsEl = document.getElementById('results');
+    const statusEl = document.getElementById('status');
+
+    const embedded = [
+      { id: 'ga', name: 'GA', best: 32.285667419433594 },
+      { id: 'imitation', name: 'Imitation', best: 26.3 },
+      { id: 'rl', name: 'RL', best: 0.4 }
+    ];
+
+    function renderFallback(value) {
+      const rows = embedded.map(m => ({ id: m.id, name: m.name, best: m.best, beats: value >= m.best }));
+      rows.push({ id: 'astar', name: 'A* (server unavailable)', best: 'unavailable', beats: false });
+      renderRows(rows);
+    }
+
+    function renderRows(rows) {
+      const any = rows.some(r => r.beats === true);
+      const all = rows.every(r => r.beats === true);
+      let html = '';
+      if (all) html += `<div class="small ok">Input meets or beats ALL models.</div>`;
+      else if (any) html += `<div class="small ok">Input meets or beats AT LEAST ONE model.</div>`;
+      else html += `<div class="small bad">Input does not meet or beat any model.</div>`;
+
+      for (const r of rows) {
+        const bestText = (r.best === 'unavailable') ? 'unavailable' : r.best;
+        const status = r.beats ? `<span class="ok">meets/beats</span>` : `<span class="bad">below</span>`;
+        html += `<div class="model"><div><strong>${r.name}</strong><div class="muted small">best: ${bestText}</div></div><div style="align-self:center">${status}</div></div>`;
+      }
+
+      resultsEl.innerHTML = html;
+    }
+
+    async function check() {
+      resultsEl.innerHTML = '<div class="muted small">Running models (10 runs each)... this may take a few seconds.</div>';
+      const raw = scoreEl.value.trim();
+      if (!raw) { alert('Please enter a number'); return }
+      const val = Number(raw);
+      if (!isFinite(val)) { alert('Enter a valid numeric value'); return }
+
+      try {
+        const resp = await fetch('http://127.0.0.1:5000/models_best?runs=10');
+        if (!resp.ok) throw new Error('server error');
+        const j = await resp.json();
+        const mapping = j.results || {};
+        const order = ['astar','ga','rl'];
+        const rows = [];
+        for (const k of order) {
+          const v = mapping[k];
+          if (!v) continue;
+          if (v.error) {
+            rows.push({ id: k, name: (k==='astar' ? 'A*' : k.toUpperCase()), best: 'unavailable', beats: false });
+          } else {
+            const best = (v.max !== undefined) ? v.max : (v.best !== undefined ? v.best : null);
+            rows.push({ id: k, name: (k==='astar' ? 'A*' : k.toUpperCase()), best: best, beats: best !== null ? (val >= best) : false });
+          }
+        }
+        renderRows(rows);
+      } catch (err) {
+        statusEl.textContent = 'Server unreachable — showing fallback embedded values';
+        renderFallback(val);
+      }
+    }
+
+    btn.addEventListener('click', check);
+    clearBtn.addEventListener('click', ()=>{ scoreEl.value=''; resultsEl.innerHTML=''; statusEl.textContent='Server: http://127.0.0.1:5000/models_best?runs=10'; });
+    scoreEl.addEventListener('keydown', e => { if (e.key === 'Enter') check(); });
+  </script>
+</body>
+</html>

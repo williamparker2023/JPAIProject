@@ -1,5 +1,20 @@
 Snake
 
+## Running Website Comparer
+```bash
+python -m ui.astar_server
+```
+In a different terminal:
+
+```bash
+python -m http.server 8000
+```
+
+Then open this link:
+http://localhost:8000/ui/compare_models_simple.html
+
+
+
 ## Setup
 
 1. Create and activate a virtual environment:
